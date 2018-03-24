@@ -115,20 +115,61 @@ fn state_to_bytes(state: [u8; BLOCK_SIZE]) -> [u8; BLOCK_SIZE / 8] {
     bytes
 }
 
-pub fn encrypt(data: &[u8], key: &[u8]) -> [u8; BLOCK_SIZE / 8] {
+fn encrypt(state: &mut [u8; BLOCK_SIZE], key_register: &mut [u8; KEY_LENGTH]) {
+    for i in 0..NUM_ROUNDS as u8 {
+        add_round_key(state, key_register);
+        s_box_layer(state);
+        p_layer(state);
+
+        update_key(key_register, i + 1);
+    }
+
+    add_round_key(state, &key_register);
+}
+
+fn pad(data: &[u8]) -> Vec<u8> {
+    let num_blocks = match (data.len() / 8, data.len() % 8) {
+        (quo, 0) => quo,
+        (quo, _) => quo + 1,
+    };
+
+    let mut padded: Vec<u8> = Vec::with_capacity(num_blocks * 8);
+    padded.extend(data.iter());
+    padded.resize(num_blocks * 8, 0);
+    padded
+}
+
+pub fn ecb_encrypt(data: &[u8], key: &[u8]) -> Vec<u8> {
+    let padded = pad(data);
+    let length = padded.len();
+    let mut encrypted: Vec<u8> = Vec::with_capacity(length);
+
+    for i in 0..length / 8 {
+        let encrypted_block = _encrypt_block(&padded[8 * i..8 * (i + 1)], key);
+        encrypted.extend(encrypted_block.iter());
+    }
+
+    encrypted
+}
+
+fn _encrypt_block(data: &[u8], key: &[u8]) -> [u8; BLOCK_SIZE / 8] {
+    debug_assert_eq!(data.len(), BLOCK_SIZE / 8);
+
     let mut state = bytes_to_state(data);
     let mut key_register = bytes_to_key(key);
 
-    for i in 0..NUM_ROUNDS as u8 {
-        add_round_key(&mut state, &key_register);
-        s_box_layer(&mut state);
-        p_layer(&mut state);
+    encrypt(&mut state, &mut key_register);
 
-        update_key(&mut key_register, i + 1);
-    }
-
-    add_round_key(&mut state, &key_register);
     state_to_bytes(state)
+}
+
+pub fn encrypt_block(data: &[u8], key: &[u8]) -> [u8; BLOCK_SIZE / 8] {
+    if data.len() < BLOCK_SIZE / 8 {
+        let data = pad(data);
+        _encrypt_block(&data[..], key)
+    } else {
+        _encrypt_block(data, key)
+    }
 }
 
 fn generate_round_keys(key: &[u8; KEY_LENGTH]) -> [[u8; BLOCK_SIZE]; NUM_ROUNDS + 1] {
@@ -323,5 +364,36 @@ mod tests {
         ];
         assert_eq!(key[..BLOCK_SIZE], round_keys[0][..]);
         assert_eq!(k32[..], round_keys[NUM_ROUNDS][..]);
+    }
+
+    #[test]
+    fn test_pad1() {
+        let data = [117, 121, 97, 105, 106];
+        let padded = pad(&data);
+
+        let expected = [117, 121, 97, 105, 106, 0, 0, 0];
+        assert_eq!(expected[..], padded[..]);
+    }
+
+    #[test]
+    fn test_pad2() {
+        let data = [103, 110, 105, 121, 103, 110, 111, 114];
+        let padded = pad(&data);
+
+        let expected = [103, 110, 105, 121, 103, 110, 111, 114];
+        assert_eq!(expected[..], padded[..]);
+    }
+
+    #[test]
+    fn test_pad3() {
+        let data = [
+            121, 114, 114, 101, 104, 115, 105, 121, 110, 101, 119, 121, 97, 116
+        ];
+        let padded = pad(&data);
+
+        let expected = [
+            121, 114, 114, 101, 104, 115, 105, 121, 110, 101, 119, 121, 97, 116, 0, 0
+        ];
+        assert_eq!(expected[..], padded[..]);
     }
 }
