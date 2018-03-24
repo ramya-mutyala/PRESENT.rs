@@ -11,6 +11,119 @@ const P: [u8; 64] = [
     28, 44, 60, 13, 29, 45, 61, 14, 30, 46, 62, 15, 31, 47, 63,
 ];
 
+pub struct Key80 {
+    a: u64,
+    b: u64,
+}
+
+pub struct Key128 {
+    a: u64,
+    b: u64,
+}
+
+trait KeyRegister {
+    fn get_round_key(&self) -> u64;
+    fn update(&mut self, round_counter: u64);
+}
+
+impl Key80 {
+    pub fn new(bytes: &[u8]) -> Key80 {
+        let (mut a, mut b) = (0u64, 0u64);
+        for (i, x) in bytes.iter().enumerate() {
+            if i > 10 {
+                break;
+            }
+
+            let byte = *x as u64;
+
+            if i < 8 {
+                let shift = 56 - i * 8;
+                a |= byte << shift;
+            } else {
+                let shift = 120 - i * 8;
+                b |= byte << shift;
+            }
+        }
+
+        Key80 { a, b }
+    }
+
+    fn rotate(&mut self) {
+        let w = self.a & 0b1111111111111111111111111111111111111111111110000000000000000000;
+        let x = self.a & 0b0000000000000000000000000000000000000000000001111111111111111000;
+        let y = self.a & 0b0000000000000000000000000000000000000000000000000000000000000111;
+        let z = self.b & 0b1111111111111111000000000000000000000000000000000000000000000000;
+
+        self.a = (y << 61) + (z >> 3) + (w >> 19);
+        self.b = x >> 3;
+    }
+
+    fn update2(&mut self) {
+        let w = (self.a >> 60) & 0xf;
+        let x = S_BOX[w as usize];
+        let y = (x as u64) << 60;
+        let z = self.a & 0x0fffffffffffffff;
+
+        self.a = y + z;
+    }
+
+    fn update3(&mut self, round_counter: u64) {
+        let w = (self.a & 0xf) << 1;
+        let x = (self.b >> 63) & 1;
+        let y = w + x;
+        let z = y ^ round_counter;
+
+        let p = (z & 0b11110) >> 1;
+        let q = (z & 0b00001) << 63;
+        let r = self.a & 0xfffffffffffffff0;
+        let s = self.b & 0x7fffffffffffffff;
+
+        self.a = p + r;
+        self.b = q + s;
+    }
+}
+
+impl KeyRegister for Key80 {
+    fn get_round_key(&self) -> u64 {
+        self.a
+    }
+
+    fn update(&mut self, round_counter: u64) {
+        self.rotate();
+        self.update2();
+        self.update3(round_counter);
+    }
+}
+
+impl Key128 {
+    pub fn new(bytes: &[u8]) -> Key128 {
+        let (mut a, mut b) = (0u64, 0u64);
+        for (i, x) in bytes.iter().enumerate() {
+            if i > 16 {
+                break;
+            }
+
+            let byte = *x as u64;
+
+            if i < 8 {
+                let shift = 56 - i * 8;
+                a |= byte << shift;
+            } else {
+                let shift = 120 - i * 8;
+                b |= byte << shift;
+            }
+        }
+
+        Key128 { a, b }
+    }
+
+    fn get_round_key(&self) -> u64 {
+        self.a
+    }
+
+    fn update(&mut self, round_counter: u64) {}
+}
+
 fn s_box(b: u8) -> u8 {
     S_BOX[b as usize]
 }
@@ -395,5 +508,59 @@ mod tests {
             121, 114, 114, 101, 104, 115, 105, 121, 110, 101, 119, 121, 97, 116, 0, 0
         ];
         assert_eq!(expected[..], padded[..]);
+    }
+
+    #[test]
+    fn test_key80_new1() {
+        let key = Key80::new(&[0, 0, 0, 0, 0, 1]);
+        assert_eq!(key.a, 1u64 << 16);
+        assert_eq!(key.b, 0u64);
+    }
+
+    #[test]
+    fn test_key80_new2() {
+        let key = Key80::new(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+        assert_eq!(key.a, 1u64);
+        assert_eq!(key.b, 0u64);
+    }
+
+    #[test]
+    fn test_key80_new3() {
+        let key = Key80::new(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 1]);
+        assert_eq!(key.a, 1u64);
+        assert_eq!(key.b, 1u64 << 48);
+    }
+
+    #[test]
+    fn test_key80_key_register_update() {
+        let mut key = Key80 { a: 0, b: 0 };
+        key.update(1);
+
+        let a: u64 = 0b11 << 62;
+        let b: u64 = 1 << 63;
+
+        assert_eq!(a, key.a);
+        assert_eq!(b, key.b);
+    }
+
+    #[test]
+    fn test_key128_new1() {
+        let key = Key128::new(&[0, 0, 0, 0, 0, 1]);
+        assert_eq!(key.a, 1u64 << 16);
+        assert_eq!(key.b, 0u64);
+    }
+
+    #[test]
+    fn test_key128_new2() {
+        let key = Key128::new(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+        assert_eq!(key.a, 1u64);
+        assert_eq!(key.b, 0u64);
+    }
+
+    #[test]
+    fn test_key128_new3() {
+        let key = Key128::new(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(key.a, 1u64);
+        assert_eq!(key.b, 1u64);
     }
 }
