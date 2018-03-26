@@ -48,7 +48,6 @@ fn test_encrypt_block4() {
     let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
     let key = present80::Key::new(&key_bytes[..]);
 
-
     let encrypted = present80::encrypt_block(&plaintext[..], key);
     let ciphertext = hex::encode_upper(&encrypted[..]);
 
@@ -74,7 +73,6 @@ fn test_ecb_encrypt2() {
     let plaintext = hex::decode("0000000000000000FFFFFFFFFFFFFFFF").unwrap();
     let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
     let key = present80::Key::new(&key_bytes[..]);
-
 
     let encrypted = present80::ecb_encrypt(&plaintext[..], key);
     let ciphertext = hex::encode_upper(&encrypted[..]);
