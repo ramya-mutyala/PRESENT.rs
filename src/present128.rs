@@ -1,6 +1,6 @@
 use std::fmt;
 
-const KEY_LENGTH_IN_BYTES: usize = 16;
+pub const KEY_LENGTH_IN_BYTES: usize = 16;
 
 #[derive(Clone, Copy)]
 pub struct Key {
@@ -106,14 +106,14 @@ pub fn ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
     encrypted
 }
 
-fn _encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BITS / 8] {
+fn _encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
     let state = super::bytes_to_state(data);
     let encrypted = encrypt(state, key);
 
     super::state_to_bytes(encrypted)
 }
 
-pub fn encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BITS / 8] {
+pub fn encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
     if data.len() < super::BLOCK_SIZE_IN_BYTES {
         let mut padded = [0u8; super::BLOCK_SIZE_IN_BYTES];
         &padded[..data.len()].copy_from_slice(data);
