@@ -1,3 +1,5 @@
+extern crate rayon;
+
 pub mod present80;
 pub mod present128;
 
@@ -55,8 +57,8 @@ pub(crate) fn add_round_key(state: u64, round_key: u64) -> u64 {
 
 pub(crate) fn bytes_to_state(bytes: &[u8]) -> u64 {
     let mut state = 0u64;
-    for i in 0..BLOCK_SIZE_IN_BYTES {
-        let x = (bytes[i] as u64) << (7 - i) * 8;
+    for (i, byte) in bytes.iter().take(BLOCK_SIZE_IN_BYTES).enumerate() {
+        let x = (*byte as u64) << (7 - i) * 8;
         state |= x as u64;
     }
     state

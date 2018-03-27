@@ -1,4 +1,6 @@
-use std::fmt;
+use std::io::Read;
+
+use rayon::prelude::*;
 
 pub const KEY_LENGTH_IN_BYTES: usize = 10;
 
@@ -7,6 +9,7 @@ pub struct Key {
     bytes: [u8; KEY_LENGTH_IN_BYTES],
 }
 
+#[derive(Clone, Copy)]
 struct KeyRegister {
     a: u64,
     b: u64,
@@ -15,11 +18,7 @@ struct KeyRegister {
 impl Key {
     pub fn new(bytes: &[u8]) -> Key {
         let mut b = [0u8; KEY_LENGTH_IN_BYTES];
-        match bytes.len() {
-            0 => {}
-            1...KEY_LENGTH_IN_BYTES => b[..bytes.len()].copy_from_slice(bytes),
-            _ => b.copy_from_slice(&bytes[..KEY_LENGTH_IN_BYTES]),
-        }
+        bytes.take(KEY_LENGTH_IN_BYTES as u64).read(&mut b).unwrap();
 
         Key { bytes: b }
     }
@@ -81,10 +80,6 @@ impl From<Key> for KeyRegister {
     fn from(key: Key) -> Self {
         let (mut a, mut b) = (0u64, 0u64);
         for (i, x) in key.bytes.iter().enumerate() {
-            if i > KEY_LENGTH_IN_BYTES - 1 {
-                break;
-            }
-
             let byte = *x as u64;
             if i < 8 {
                 let shift = 56 - i * 8;
@@ -99,15 +94,8 @@ impl From<Key> for KeyRegister {
     }
 }
 
-impl fmt::Debug for KeyRegister {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "KeyRegister {{ a: {:b}, b: {:b} }}", self.a, self.b)
-    }
-}
-
-fn encrypt(state: u64, key: Key) -> u64 {
+fn encrypt(state: u64, mut key_register: KeyRegister) -> u64 {
     let mut state = state;
-    let mut key_register = KeyRegister::from(key);
 
     for i in 0..super::NUM_ROUNDS {
         let round_key = key_register.a;
@@ -125,34 +113,45 @@ fn encrypt(state: u64, key: Key) -> u64 {
 }
 
 pub fn ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
-    let padded = super::pad(data);
-    let num_blocks = padded.len();
+    let key_register = KeyRegister::from(key);
 
-    let mut encrypted: Vec<u8> = Vec::with_capacity(num_blocks);
+    let blocks: Vec<[u8; 8]> = data.chunks(super::BLOCK_SIZE_IN_BYTES)
+        .map(|bytes| super::bytes_to_state(bytes))
+        .map(|state| encrypt(state, key_register))
+        .map(|state| super::state_to_bytes(state))
+        .collect();
 
-    for i in 0..num_blocks / 8 {
-        let encrypted_block = _encrypt_block(&padded[8 * i..8 * (i + 1)], key);
-        encrypted.extend(encrypted_block.iter());
+    let mut encrypted: Vec<u8> = Vec::new();
+    for block in blocks.iter() {
+        encrypted.extend(block.iter());
     }
 
     encrypted
 }
 
-fn _encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
-    let state = super::bytes_to_state(data);
-    let encrypted = encrypt(state, key);
+pub fn par_ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
+    let key_register = KeyRegister::from(key);
 
-    super::state_to_bytes(encrypted)
+    let blocks: Vec<[u8; 8]> = data.par_chunks(super::BLOCK_SIZE_IN_BYTES)
+        .map(|bytes| super::bytes_to_state(bytes))
+        .map(|state| encrypt(state, key_register))
+        .map(|state| super::state_to_bytes(state))
+        .collect();
+
+    let mut encrypted: Vec<u8> = Vec::new();
+    for block in blocks.iter() {
+        encrypted.extend(block.iter());
+    }
+
+    encrypted
 }
 
 pub fn encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
-    if data.len() < super::BLOCK_SIZE_IN_BYTES {
-        let mut padded = [0u8; super::BLOCK_SIZE_IN_BYTES];
-        &padded[..data.len()].copy_from_slice(data);
-        _encrypt_block(&padded[..], key)
-    } else {
-        _encrypt_block(&data[..super::BLOCK_SIZE_IN_BYTES], key)
-    }
+    let state = super::bytes_to_state(data);
+    let key_register = KeyRegister::from(key);
+    let encrypted = encrypt(state, key_register);
+
+    super::state_to_bytes(encrypted)
 }
 
 #[cfg(test)]
