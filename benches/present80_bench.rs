@@ -9,62 +9,29 @@ use test::Bencher;
 
 use present::present80;
 
-#[bench]
-fn bench_ecb_encrypt_16kb(b: &mut Bencher) {
-    let plaintext: Vec<u8> = hex::decode("0000000000000000FFFFFFFFFFFFFFFF")
-        .unwrap()
-        .iter()
-        .cycle()
-        .take(16384)
-        .map(|&x| x)
-        .collect();
-    let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
-    let key = present80::Key::new(&key_bytes[..]);
+macro_rules! bench_encrypt_or_decrypt {
+    ($name:ident, $f:ident, $n:expr, $k:expr, $i:expr) => {
+        #[bench]
+        fn $name(b: &mut Bencher) {
+            let input: Vec<u8> = hex::decode($i)
+                .unwrap()
+                .iter()
+                .cycle()
+                .take($n)
+                .map(|&x| x)
+                .collect();
+            let key_bytes = hex::decode($k).unwrap();
+            let key = present80::Key::new(&key_bytes[..]);
 
-    b.iter(|| present80::ecb_encrypt(&plaintext[..], key));
+            b.iter(|| present80::$f(&input[..], key));
+        }
+    };
 }
 
-#[bench]
-fn bench_par_ecb_encrypt_16kb(b: &mut Bencher) {
-    let plaintext: Vec<u8> = hex::decode("0000000000000000FFFFFFFFFFFFFFFF")
-        .unwrap()
-        .iter()
-        .cycle()
-        .take(16384)
-        .map(|&x| x)
-        .collect();
-    let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
-    let key = present80::Key::new(&key_bytes[..]);
+bench_encrypt_or_decrypt!(bench_ecb_encrypt_4kb, ecb_encrypt, 4096, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
 
-    b.iter(|| present80::par_ecb_encrypt(&plaintext[..], key));
-}
+bench_encrypt_or_decrypt!(bench_par_ecb_encrypt_4kb, par_ecb_encrypt, 4096, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
 
-#[bench]
-fn bench_ecb_encrypt_64kb(b: &mut Bencher) {
-    let plaintext: Vec<u8> = hex::decode("0000000000000000FFFFFFFFFFFFFFFF")
-        .unwrap()
-        .iter()
-        .cycle()
-        .take(65536)
-        .map(|&x| x)
-        .collect();
-    let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
-    let key = present80::Key::new(&key_bytes[..]);
+bench_encrypt_or_decrypt!(bench_ecb_encrypt_16kb, ecb_encrypt, 16384, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
 
-    b.iter(|| present80::ecb_encrypt(&plaintext[..], key));
-}
-
-#[bench]
-fn bench_par_ecb_encrypt_64kb(b: &mut Bencher) {
-    let plaintext: Vec<u8> = hex::decode("0000000000000000FFFFFFFFFFFFFFFF")
-        .unwrap()
-        .iter()
-        .cycle()
-        .take(65536)
-        .map(|&x| x)
-        .collect();
-    let key_bytes = hex::decode("FFFFFFFFFFFFFFFFFFFF").unwrap();
-    let key = present80::Key::new(&key_bytes[..]);
-
-    b.iter(|| present80::par_ecb_encrypt(&plaintext[..], key));
-}
+bench_encrypt_or_decrypt!(bench_par_ecb_encrypt_16kb, par_ecb_encrypt, 16384, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
