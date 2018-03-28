@@ -121,7 +121,8 @@ pub fn ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
         .map(|state| super::state_to_bytes(state))
         .collect();
 
-    let mut encrypted: Vec<u8> = Vec::new();
+    let num_blocks = blocks.len() * super::BLOCK_SIZE_IN_BYTES;
+    let mut encrypted: Vec<u8> = Vec::with_capacity(num_blocks);
     for block in blocks.iter() {
         encrypted.extend(block.iter());
     }
@@ -138,7 +139,8 @@ pub fn par_ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
         .map(|state| super::state_to_bytes(state))
         .collect();
 
-    let mut encrypted: Vec<u8> = Vec::new();
+    let num_blocks = blocks.len() * super::BLOCK_SIZE_IN_BYTES;
+    let mut encrypted: Vec<u8> = Vec::with_capacity(num_blocks);
     for block in blocks.iter() {
         encrypted.extend(block.iter());
     }
