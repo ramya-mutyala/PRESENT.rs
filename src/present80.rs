@@ -4,6 +4,8 @@ use rayon::prelude::*;
 
 pub const KEY_LENGTH_IN_BYTES: usize = 10;
 
+type RoundKeys = [u64; super::NUM_ROUNDS + 1];
+
 #[derive(Clone, Copy)]
 pub struct Key {
     bytes: [u8; KEY_LENGTH_IN_BYTES],
@@ -40,7 +42,7 @@ impl KeyRegister {
 
     fn update2(&mut self) {
         let w = (self.a >> 60) & 0xf;
-        let x = super::S_BOX[w as usize];
+        let x = super::S[w as usize];
         let y = (x as u64) << 60;
         let z = self.a & 0x0fffffffffffffff;
 
@@ -69,11 +71,23 @@ impl KeyRegister {
         self.b = b;
     }
 
-    fn update(&mut self, round_counter: u64) {
+    fn update(&mut self, round_counter: usize) {
         self.rotate();
         self.update2();
-        self.update3(round_counter);
+        self.update3(round_counter as u64);
     }
+}
+
+fn generate_round_keys(key: Key) -> [u64; super::NUM_ROUNDS + 1] {
+    let mut round_keys = [0u64; super::NUM_ROUNDS + 1];
+    let mut key_register = KeyRegister::from(key);
+    for i in 0..super::NUM_ROUNDS {
+        round_keys[i] = key_register.a;
+        key_register.update(i + 1);
+    }
+
+    round_keys[super::NUM_ROUNDS] = key_register.a;
+    round_keys
 }
 
 impl From<Key> for KeyRegister {
@@ -94,30 +108,38 @@ impl From<Key> for KeyRegister {
     }
 }
 
-fn encrypt(state: u64, mut key_register: KeyRegister) -> u64 {
+fn decrypt(state: u64, round_keys: &RoundKeys) -> u64 {
     let mut state = state;
+    state = super::add_round_key(state, round_keys[super::NUM_ROUNDS]);
 
-    for i in 0..super::NUM_ROUNDS {
-        let round_key = key_register.a;
-        state = super::add_round_key(state, round_key);
-        state = super::s_box_layer(state);
-        state = super::p_layer(state);
-
-        key_register.update((i + 1) as u64);
+    for i in (0..super::NUM_ROUNDS).rev() {
+        state = super::inv_p_layer(state);
+        state = super::inv_s_box_layer(state);
+        state = super::add_round_key(state, round_keys[i]);
     }
-
-    let round_key = key_register.a;
-    state = super::add_round_key(state, round_key);
 
     state
 }
 
+fn encrypt(state: u64, round_keys: &RoundKeys) -> u64 {
+    let mut state = state;
+
+    for i in 0..super::NUM_ROUNDS {
+        state = super::add_round_key(state, round_keys[i]);
+        state = super::s_box_layer(state);
+        state = super::p_layer(state);
+    }
+
+    state = super::add_round_key(state, round_keys[super::NUM_ROUNDS]);
+    state
+}
+
 pub fn ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
-    let key_register = KeyRegister::from(key);
+    let round_keys = generate_round_keys(key);
 
     let blocks: Vec<[u8; 8]> = data.chunks(super::BLOCK_SIZE_IN_BYTES)
         .map(|bytes| super::bytes_to_state(bytes))
-        .map(|state| encrypt(state, key_register))
+        .map(|state| encrypt(state, &round_keys))
         .map(|state| super::state_to_bytes(state))
         .collect();
 
@@ -130,12 +152,48 @@ pub fn ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
     encrypted
 }
 
+pub fn ecb_decrypt(data: &[u8], key: Key) -> Vec<u8> {
+    let round_keys = generate_round_keys(key);
+
+    let blocks: Vec<[u8; 8]> = data.chunks(super::BLOCK_SIZE_IN_BYTES)
+        .map(|bytes| super::bytes_to_state(bytes))
+        .map(|state| decrypt(state, &round_keys))
+        .map(|state| super::state_to_bytes(state))
+        .collect();
+
+    let num_blocks = blocks.len() * super::BLOCK_SIZE_IN_BYTES;
+    let mut decrypted: Vec<u8> = Vec::with_capacity(num_blocks);
+    for block in blocks.iter() {
+        decrypted.extend(block.iter());
+    }
+
+    decrypted
+}
+
 pub fn par_ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
-    let key_register = KeyRegister::from(key);
+    let round_keys = generate_round_keys(key);
 
     let blocks: Vec<[u8; 8]> = data.par_chunks(super::BLOCK_SIZE_IN_BYTES)
         .map(|bytes| super::bytes_to_state(bytes))
-        .map(|state| encrypt(state, key_register))
+        .map(|state| encrypt(state, &round_keys))
+        .map(|state| super::state_to_bytes(state))
+        .collect();
+
+    let num_blocks = blocks.len() * super::BLOCK_SIZE_IN_BYTES;
+    let mut encrypted: Vec<u8> = Vec::with_capacity(num_blocks);
+    for block in blocks.iter() {
+        encrypted.extend(block.iter());
+    }
+
+    encrypted
+}
+
+pub fn par_ecb_decrypt(data: &[u8], key: Key) -> Vec<u8> {
+    let round_keys = generate_round_keys(key);
+
+    let blocks: Vec<[u8; 8]> = data.par_chunks(super::BLOCK_SIZE_IN_BYTES)
+        .map(|bytes| super::bytes_to_state(bytes))
+        .map(|state| decrypt(state, &round_keys))
         .map(|state| super::state_to_bytes(state))
         .collect();
 
@@ -150,10 +208,19 @@ pub fn par_ecb_encrypt(data: &[u8], key: Key) -> Vec<u8> {
 
 pub fn encrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
     let state = super::bytes_to_state(data);
-    let key_register = KeyRegister::from(key);
-    let encrypted = encrypt(state, key_register);
+    let round_keys = generate_round_keys(key);
+    let encrypted = encrypt(state, &round_keys);
 
     super::state_to_bytes(encrypted)
+}
+
+pub fn decrypt_block(data: &[u8], key: Key) -> [u8; super::BLOCK_SIZE_IN_BYTES] {
+    let state = super::bytes_to_state(data);
+    let round_keys = generate_round_keys(key);
+
+    let decrypted = decrypt(state, &round_keys);
+
+    super::state_to_bytes(decrypted)
 }
 
 #[cfg(test)]
