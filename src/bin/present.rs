@@ -40,7 +40,7 @@ fn main() {
             .long("key")
             .value_name("key")
             .takes_value(true)
-            .help("Hex or base64 encoded encryption key"))
+            .help("Hex encoded encryption key"))
         .arg(Arg::with_name("key file")
             .short("K")
             .long("key-file")
@@ -61,19 +61,19 @@ fn main() {
             .short("I")
             .long("input-format")
             .possible_values(&["binary", "hex"])
-            .default_value("hex")
+            .default_value("binary")
             .help("Specify input format"))
         .arg(Arg::with_name("key format")
             .short("f")
             .long("key-format")
             .possible_values(&["binary", "hex"])
-            .default_value("hex")
-            .help("Specify key format"))
+            .default_value("binary")
+            .help("Specify key format from file"))
         .arg(Arg::with_name("output format")
             .short("O")
             .long("output-format")
             .possible_values(&["binary", "hex"])
-            .default_value("hex")
+            .default_value("binary")
             .help("Specify output format"))
         .arg(Arg::with_name("decrypt")
             .short("d")
@@ -85,12 +85,6 @@ fn main() {
         .get_matches();
 
     let input_format = match matches.value_of("input format").unwrap() {
-        "binary" => Format::Binary,
-        "hex" => Format::Hex,
-        _ => unreachable!(),
-    };
-
-    let key_format = match matches.value_of("key format").unwrap() {
         "binary" => Format::Binary,
         "hex" => Format::Hex,
         _ => unreachable!(),
@@ -109,12 +103,20 @@ fn main() {
         _ => unreachable!(),
     };
 
+    let decrypt_mode = matches.is_present("decrypt");
+
     let key_bytes = match matches.value_of("key") {
         None => {
             let filename = matches.value_of("key file").unwrap();
+            let key_format = match matches.value_of("key format").unwrap() {
+                "binary" => Format::Binary,
+                "hex" => Format::Hex,
+                _ => unreachable!(),
+            };
+
             read_key_bytes_from_file(filename, &key_format)
         }
-        Some(key_string) => read_key_bytes_from_string(key_string, &key_format),
+        Some(key_string) => read_key_bytes_from_string(key_string, &Format::Hex),
     };
 
     let input_source = match matches.value_of("FILE") {
@@ -130,24 +132,44 @@ fn main() {
             let stdin = io::stdin();
             let mut file = stdin.lock();
 
-            encrypt(
-                &mut file,
-                key_length,
-                key_bytes,
-                &input_format,
-                &output_format,
-            );
+            if decrypt_mode {
+                decrypt(
+                    &mut file,
+                    key_length,
+                    key_bytes,
+                    &input_format,
+                    &output_format,
+                );
+            } else {
+                encrypt(
+                    &mut file,
+                    key_length,
+                    key_bytes,
+                    &input_format,
+                    &output_format,
+                );
+            }
         }
         InputSource::File(filename) => {
             let mut file = io::BufReader::new(File::open(filename).expect("file not found"));
 
-            encrypt(
-                &mut file,
-                key_length,
-                key_bytes,
-                &input_format,
-                &output_format,
-            );
+            if decrypt_mode {
+                decrypt(
+                    &mut file,
+                    key_length,
+                    key_bytes,
+                    &input_format,
+                    &output_format,
+                );
+            } else {
+                encrypt(
+                    &mut file,
+                    key_length,
+                    key_bytes,
+                    &input_format,
+                    &output_format,
+                );
+            }
         }
     }
 }
@@ -192,6 +214,56 @@ fn encrypt<R: io::BufRead>(
             );
         } else {
             encrypt(
+                file,
+                KeyLength::Key128,
+                key_bytes,
+                input_format,
+                output_format,
+            );
+        },
+    }
+}
+
+fn decrypt<R: io::BufRead>(
+    file: &mut R,
+    key_length: KeyLength,
+    key_bytes: Vec<u8>,
+    input_format: &Format,
+    output_format: &Format,
+) {
+    match key_length {
+        KeyLength::Key80 => {
+            if key_bytes.len() < present80::KEY_LENGTH_IN_BYTES {
+                eprintln!("warning: provided key contains less than 80 bytes and will be padded with zeroes")
+            } else if key_bytes.len() > present80::KEY_LENGTH_IN_BYTES {
+                eprintln!("warning: provided key contains more than 80 bytes and will be truncated")
+            }
+
+            let key = present80::Key::new(&key_bytes[..]);
+            present80_decrypt(file, key, input_format, output_format);
+        }
+        KeyLength::Key128 => {
+            if key_bytes.len() < present128::KEY_LENGTH_IN_BYTES {
+                eprintln!("warning: provided key contains less than 128 bytes and will be padded with zeroes");
+            } else if key_bytes.len() > present128::KEY_LENGTH_IN_BYTES {
+                eprintln!(
+                    "warning: provided key contains more than 128 bytes and will be truncated"
+                );
+            }
+
+            let key = present128::Key::new(&key_bytes[..]);
+            unimplemented!();
+        }
+        KeyLength::Auto => if key_bytes.len() <= 80 {
+            decrypt(
+                file,
+                KeyLength::Key80,
+                key_bytes,
+                input_format,
+                output_format,
+            );
+        } else {
+            decrypt(
                 file,
                 KeyLength::Key128,
                 key_bytes,
@@ -285,6 +357,28 @@ fn present80_encrypt<R: io::BufRead>(
         match output_format {
             &Format::Binary => out.write_all(&encrypted[..]),
             &Format::Hex => out.write_all(hex::encode(&encrypted[..]).as_bytes()),
+        }.expect("error writing to stdout");
+    }
+}
+
+fn present80_decrypt<R: io::BufRead>(
+    file: &mut R,
+    key: present80::Key,
+    input_format: &Format,
+    output_format: &Format,
+) {
+    let stdout = io::stdout();
+    let mut out = io::BufWriter::new(stdout.lock());
+
+    loop {
+        let block = match read_block_from_file(file, input_format) {
+            None => return,
+            Some(block) => block,
+        };
+        let decrypted = present80::decrypt_block(&block[..], key);
+        match output_format {
+            &Format::Binary => out.write_all(&decrypted[..]),
+            &Format::Hex => out.write_all(hex::encode(&decrypted[..]).as_bytes()),
         }.expect("error writing to stdout");
     }
 }
