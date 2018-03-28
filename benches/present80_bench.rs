@@ -28,10 +28,34 @@ macro_rules! bench_encrypt_or_decrypt {
     };
 }
 
-bench_encrypt_or_decrypt!(bench_ecb_encrypt_4kb, ecb_encrypt, 4096, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
+bench_encrypt_or_decrypt!(
+    bench_ecb_encrypt_4kb,
+    ecb_encrypt,
+    4096,
+    "FFFFFFFFFFFFFFFFFFFF",
+    "0000000000000000FFFFFFFFFFFFFFFF"
+);
 
-bench_encrypt_or_decrypt!(bench_par_ecb_encrypt_4kb, par_ecb_encrypt, 4096, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
+bench_encrypt_or_decrypt!(
+    bench_par_ecb_encrypt_4kb,
+    par_ecb_encrypt,
+    4096,
+    "FFFFFFFFFFFFFFFFFFFF",
+    "0000000000000000FFFFFFFFFFFFFFFF"
+);
 
-bench_encrypt_or_decrypt!(bench_ecb_encrypt_16kb, ecb_encrypt, 16384, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
+bench_encrypt_or_decrypt!(
+    bench_ecb_encrypt_16kb,
+    ecb_encrypt,
+    16384,
+    "FFFFFFFFFFFFFFFFFFFF",
+    "0000000000000000FFFFFFFFFFFFFFFF"
+);
 
-bench_encrypt_or_decrypt!(bench_par_ecb_encrypt_16kb, par_ecb_encrypt, 16384, "FFFFFFFFFFFFFFFFFFFF", "0000000000000000FFFFFFFFFFFFFFFF");
+bench_encrypt_or_decrypt!(
+    bench_par_ecb_encrypt_16kb,
+    par_ecb_encrypt,
+    16384,
+    "FFFFFFFFFFFFFFFFFFFF",
+    "0000000000000000FFFFFFFFFFFFFFFF"
+);
